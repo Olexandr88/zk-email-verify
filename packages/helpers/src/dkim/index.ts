@@ -156,18 +156,10 @@ async function tryVerifyDKIM(
     );
   }
   
-  let lastError: Error | undefined;
-  
-  for (const candidate of candidateResults) {
-    try {
-      candidate.headers = dkimVerifier.headers;
-      return candidate;
-    } catch (e) {
-      lastError = e as Error;
-      continue;
-    }
-  }
-  
-  throw lastError ?? new Error(
-    `All DKIM signatures failed for domain ${domainToVerifyDKIM}`
-  );
+  // Prefer the first signature that actually verifies. If none do, return the
+  // first candidate so the caller reports the usual failure reason.
+  const selected = candidateResults.find((c: any) => c.status?.result === 'pass') ?? candidateResults[0];
+
+  selected.headers = dkimVerifier.headers;
+  return selected;
+}

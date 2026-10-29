@@ -209,3 +209,42 @@ describe('DKIM with sanitization', () => {
     expect(result.appliedSanitization).toBe('removeLabels');
   });
 });
+
+describe('DKIM with multiple signatures for the same domain', () => {
+  const readGood = () => fs.readFileSync(path.join(__dirname, 'test-data/email-good.eml'), 'utf8');
+
+  const getSignatureHeader = (eml: string) => {
+    const match = eml.match(/^DKIM-Signature:[^\n]*\n(?:[ \t][^\n]*\n)*/);
+    if (!match) {
+      throw new Error('DKIM-Signature header not found in fixture');
+    }
+    return match[0];
+  };
+
+  // Corrupt the first characters of the b= tag so the signature no longer verifies
+  const corrupt = (header: string) => header.replace(/(;\s*b=)(\S{4})/, '$1AAAA');
+
+  it('should use the valid signature when an invalid one comes first', async () => {
+    const good = readGood();
+    const header = getSignatureHeader(good);
+    const badHeader = corrupt(header);
+    expect(badHeader).not.toBe(header);
+
+    const expected = await verifyDKIMSignature(Buffer.from(good));
+    const result = await verifyDKIMSignature(Buffer.from(badHeader + good));
+
+    expect(result.signingDomain).toBe('icloud.com');
+    expect(result.signature).toBe(expected.signature);
+  });
+
+  it('should fail when all signatures for the domain are invalid', async () => {
+    const good = readGood();
+    const header = getSignatureHeader(good);
+    const badHeader = corrupt(header);
+    const allBad = badHeader + good.replace(header, badHeader);
+
+    await expect(verifyDKIMSignature(Buffer.from(allBad))).rejects.toThrow(
+      /DKIM signature verification failed for domain icloud\.com/,
+    );
+  });
+});
